@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 
 import { spawn } from "bun";
-import { readFileSync, writeFileSync, unlinkSync } from "fs";
+import { unlinkSync } from "fs";
 import stripIndent from 'strip-indent';
 
-// === Configuration ===
-const SCRIPT_DIR = import.meta.dir; // directory where script lives
+const SCRIPT_DIR = import.meta.dir;
 const SONGS = ["songs/song1.mp3", "songs/song2.mp3", "songs/song3.mp3"];
 const SOCKET = `/tmp/mpv-${process.pid}.sock`;
 
@@ -13,10 +12,7 @@ let currentIndex = 0;
 let sequentialEnabled = false;
 let mpvProc: ReturnType<typeof spawn> | null = null;
 
-// === Cleanup on exit ===
 function cleanup() {
-	console.log("Cleaning up...");
-
 	try { 
 		unlinkSync(SOCKET); 
 	} catch {}
@@ -25,6 +21,7 @@ function cleanup() {
 		mpvProc.kill();
 	}
 
+	console.log("\x1b[?1049l"); // rmcup: restore normal screen
 	process.exit(0);
 }
 
@@ -32,14 +29,17 @@ process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);
 process.on("exit", cleanup);
 
-// === Start mpv in idle mode ===
+console.log("\x1b[?1049h"); // smcup: switch to alternate screen
+console.log("\x1b[2J"); // clear screen
+
+// tart mpv in idle mode
 mpvProc = spawn({
 	cmd: ["mpv", "--no-terminal", `--input-ipc-server=${SOCKET}`, "--idle=yes"],
 	stdout: "ignore",
 	stderr: "ignore"
 });
 
-// === Helper to send IPC commands ===
+// Helper to send IPC commands
 function mpvCmd(json: string) {
 	const net = require("net");
 	const client = net.createConnection(SOCKET);
@@ -47,7 +47,6 @@ function mpvCmd(json: string) {
 	client.end();
 }
 
-// === Core playback ===
 function playCurrent() {
 	const file = `${SCRIPT_DIR}/${SONGS[currentIndex]}`;
 	console.log(`▶️ Now playing: ${SONGS[currentIndex]}`);
@@ -61,7 +60,7 @@ function prevTrackIndex() {
 	currentIndex = (currentIndex - 1 + SONGS.length) % SONGS.length;
 }
 
-// === Auto-advance monitor ===
+// Auto-advance monitor
 function startMonitor() {
 	sequentialEnabled = true;
 	
@@ -92,7 +91,26 @@ function stopMonitor() {
 	sequentialEnabled = false;
 }
 
-// === Menu loop ===
+function renderUi() {
+	console.clear();
+	console.log("=== YouTube Music CLI Beta ===");
+	console.error("THIS IS A VERY EARLY VERSION, SO IT IS NOT PRODUCTION READY AND MANY STUFF ISN'T DONE YET!")
+	console.log("Tracks:", SONGS.join(" "));
+	console.log("Current track:", SONGS[currentIndex]);
+
+	console.log(stripIndent(`
+		1. Play current track
+		2. Enable sequential (auto next)
+		3. Disable sequential
+		4. Next track
+		5. Previous track
+		6. Pause
+		7. Resume
+		8. Stop
+		9. Quit
+	`).trim());
+}
+
 async function menuLoop() {
 	const readline = require("readline");
 	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -102,40 +120,20 @@ async function menuLoop() {
 	}
 
 	while(true) {
-		console.clear();
-		console.log("=== YouTube Music CLI Beta ===");
-		console.error("THIS IS A VERY EARLY VERSION, SO IT IS NOT PRODUCTION READY AND MANY STUFF ISN'T DONE YET!")
-		console.log("Tracks:", SONGS.join(" "));
-		console.log("Current track:", SONGS[currentIndex]);
-
-		console.log(stripIndent(`
-			1. Play current track
-			2. Enable sequential (auto next)
-			3. Disable sequential
-			4. Next track
-			5. Previous track
-			6. Pause
-			7. Resume
-			8. Stop
-			9. Quit
-		`).trim());
-
+		renderUi()
 		const choice = await ask("Choose: ");
 
 		switch(choice.trim()) {
 			case "1": playCurrent(); break;
-			case "2": startMonitor(); playCurrent(); console.log("Sequential enabled"); break;
-			case "3": stopMonitor(); console.log("Sequential disabled"); break;
+			case "2": startMonitor(); playCurrent(); break;
+			case "3": stopMonitor(); break;
 			case "4": nextTrackIndex(); playCurrent(); break;
 			case "5": prevTrackIndex(); playCurrent(); break;
-			case "6": mpvCmd(JSON.stringify({ command: ["set_property", "pause", true] })); console.log("⏸️ Paused"); break;
-			case "7": mpvCmd(JSON.stringify({ command: ["set_property", "pause", false] })); console.log("▶️ Resumed"); break;
-			case "8": mpvCmd(JSON.stringify({ command: ["stop"] })); console.log("⏹️ Stopped"); break;
+			case "6": mpvCmd(JSON.stringify({ command: ["set_property", "pause", true] })); break;
+			case "7": mpvCmd(JSON.stringify({ command: ["set_property", "pause", false] })); break;
+			case "8": mpvCmd(JSON.stringify({ command: ["stop"] })); break;
 			case "9": rl.close(); cleanup(); return;
-			default: console.log("Invalid option");
 		}
-
-		await ask("Press Enter to continue...");
 	}
 }
 

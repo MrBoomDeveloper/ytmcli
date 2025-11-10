@@ -1,4 +1,4 @@
-# ,
+# YouTube Music CLI
 
 To install dependencies:
 
